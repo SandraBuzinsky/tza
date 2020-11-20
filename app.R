@@ -92,9 +92,12 @@ sidebar <- dashboardSidebar(collapsed = FALSE,
                               
                               checkboxGroupInput("tab_injury",
                                                  label   = "Accidents by Injury Type",
-                                                 choices =  c("Light Injury" = "Light Injury",
-                                                              "Severe Injury" = "Severe Injury",
-                                                              "Fatality" = "Fatality") ),
+                                                 choices =  c("Light Injury",
+                                                              "Severe Injury",
+                                                              "Fatality"),
+                                                 selected = c("Light Injury",
+                                                              "Severe Injury",
+                                                              "Fatality")),
                               
                               sliderInput("Severe.injuries", "Severe Injuries Involved in Accidents:",
                                           min = 0, max = 26,
@@ -138,6 +141,7 @@ server <- function(input, output, session){
   
   output$accident_map <- renderLeaflet({
     
+    # Create variables ---------------------------------------------------------
     
     #load variables 
     tz_app1 <- separate(tz_app1, 
@@ -175,62 +179,78 @@ server <- function(input, output, session){
     tz_app1$injury[tz_app1$severity_dummy ==1] <- "Severe Injury"
     tz_app1$injury[tz_app1$light_dummy ==1] <- "Light Injury"
     
+    table( tz_app1$injury) %>% print()
     
     
-    #### Subsets
+    # Filter -------------------------------------------------------------------
     tz_app1$year <- tz_app1$year %>% str_squish() %>% as.numeric()
-    tz_app1 <- tz_app1[(tz_app1$year %in% as.numeric(input$tab_year)) & (tz_app1$road %in% input$tab_road) & (tz_app1$injury %in% input$tab_injury) & (tz_app1$lighttime %in% input$tab_lights)  & (tz_app1$male >= input$males[1]) & (tz_app1$male <= input$males[2]) & (tz_app1$female >= input$females[1]) &  (tz_app1$Severe.injuries >= input$Severe.injuries[1] & tz_app1$Severe.injuries <= input$Severe.injuries[2]) & (tz_app1$Fatalities >= input$Fatalities[1] & tz_app1$Fatalities <= input$Fatalities[2]) & (tz_app1$female <= input$females[2]),]
     
-    tz_app1$Latitude <- tz_app1$Latitude %>% as.character %>% as.numeric
-    tz_app1$Longitude <- tz_app1$Longitude %>% as.character %>% as.numeric
-    
-    tz_app1 <- tz_app1[tz_app1$Latitude != 0,]
-    
-    
-    
-    #drop any NAs among all three datasets
     tz_app1 <- tz_app1 %>%
-      dplyr::filter(!is.na(Latitude),
-                    !is.na(Longitude))
+      filter(year %in% as.numeric(input$tab_year),
+             road %in% input$tab_road,
+             lighttime %in% input$tab_lights,
+             male >= input$males[1],
+             female >= input$females[1],
+             female <= input$females[2],
+             Severe.injuries >= input$Severe.injuries[1],
+             Severe.injuries <= input$Severe.injuries[2],
+             Fatalities >= input$Fatalities[1],
+             Fatalities <= input$Fatalities[2],
+             injury %in% input$tab_injury)
     
-    health <- health %>%
-      dplyr::filter(!is.na(Latitude),
-                    !is.na(Longitude))
-    school <- school %>%
-      dplyr::filter(!is.na(lat),
-                    !is.na(lon))
+    # Prep spatial files and make map ------------------------------------------
+    if(nrow(tz_app1) %in% 0){
+      
+      # If filtering causes no data, show blank map
+      
+      map <- leaflet() %>%
+        addTiles() 
+      # TODO: this will show map of world, but may want to center to TZA
+      
+    } else{ 
+      
+      tz_app1$Latitude <- tz_app1$Latitude %>% as.character %>% as.numeric
+      tz_app1$Longitude <- tz_app1$Longitude %>% as.character %>% as.numeric
+      
+      tz_app1 <- tz_app1[tz_app1$Latitude != 0,]
+      
+      #drop any NAs among all three datasets
+      tz_app1 <- tz_app1 %>%
+        dplyr::filter(!is.na(Latitude),
+                      !is.na(Longitude))
+      
+      health <- health %>%
+        dplyr::filter(!is.na(Latitude),
+                      !is.na(Longitude))
+      school <- school %>%
+        dplyr::filter(!is.na(lat),
+                      !is.na(lon))
+      
+      #### Convert to Spatial Object
+      coordinates(tz_app1) <- ~Longitude+Latitude
+      crs(tz_app1) <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
+      
+      coordinates(health) <-  ~Longitude+Latitude
+      crs(health) <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
+      
+      coordinates(school) <- ~lon+lat
+      crs(school) <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
+      
+      tz_app1$popup_text <- paste0("Number of Fatalities\n", tz_app1$Fatalities)
+      tz_app1$popup_text <- paste(tz_app1$Latitude, tz_app1$Longitude, sep=",")
+      
+      map <- leaflet() %>%
+        addTiles() %>%
+        addMarkers(data = tz_app1, clusterOptions = markerClusterOptions, popup = ~popup_text) %>%
+        addCircles(data = health, popup = ~facility , color = "blue", group = "Health Facilities") %>%
+        addCircles(data = school, popup = ~name_code, color = "green", group = "Schools") %>%
+        addLayersControl(overlayGroups = c("Health Facilities", "Schools"),
+                         options = layersControlOptions(collapsed = FALSE)) %>%
+        hideGroup(c("Schools"))
+      
+    }
     
-    
-    
-    #### Convert to Spatial Object
-    coordinates(tz_app1) <- ~Longitude+Latitude
-    crs(tz_app1) <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
-    
-    coordinates(health) <-  ~Longitude+Latitude
-    crs(health) <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
-    
-    
-    coordinates(school) <- ~lon+lat
-    crs(school) <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
-    
-    
-    tz_app1$popup_text <- paste0("Number of Fatalities\n", tz_app1$Fatalities)
-    
-    
-    tz_app1$popup_text <- paste(tz_app1$Latitude, tz_app1$Longitude, sep=",")
-    
-    
-    
-    
-    leaflet() %>%
-      addTiles() %>%
-      addMarkers(data = tz_app1, clusterOptions = markerClusterOptions, popup = ~popup_text) %>%
-      addCircles(data = health, popup = ~facility , color = "blue", group = "Health Facilities") %>%
-      addCircles(data = school, popup = ~name_code, color = "green", group = "Schools") %>%
-      addLayersControl(overlayGroups = c("Health Facilities", "Schools"),
-                       options = layersControlOptions(collapsed = FALSE)) %>%
-      hideGroup(c("Schools"))
-    
+    map
     
     
   })
