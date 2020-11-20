@@ -108,7 +108,7 @@ sidebar <- dashboardSidebar(collapsed = FALSE,
                               sliderInput("females", "Females Involved in Accidents:",
                                           min = 0, max = 30,
                                           value = c(0, 30)))
-                                                                  )
+)
 
 
 
@@ -133,110 +133,110 @@ ui <- dashboardPage(
 # Define server logic ----------------------------------------------------------
 server <- function(input, output, session){
   
-
-# create leaflet ---------------------------------------------------------------
-
-output$accident_map <- renderLeaflet({
   
+  # create leaflet ---------------------------------------------------------------
   
-  #load variables 
-   tz_app1 <- separate(tz_app1, 
-                            Date,
-                            into = c("day_month", "year"),
-                            sep = ",",
-                            remove=FALSE
-  )
+  output$accident_map <- renderLeaflet({
+    
+    
+    #load variables 
+    tz_app1 <- separate(tz_app1, 
+                        Date,
+                        into = c("day_month", "year"),
+                        sep = ",",
+                        remove=FALSE
+    )
+    
+    tz_app1$road <- tz_app1$Road.Class %>% as.character
+    tz_app1$lighttime <- tz_app1$Light %>% as.character
+    tz_app1$male <- tz_app1$Male %>% as.numeric
+    tz_app1$female <- tz_app1$Female %>% as.numeric
+    tz_app1$Fatalities <- tz_app1$Fatalities %>% as.numeric
+    tz_app1$Severe.injuries <- tz_app1$Severe.injuries %>% as.numeric
+    
+    #make severity and fatalities dummy variables
+    
+    tz_app1$fatality_dummy <- ifelse(tz_app1$Fatalities == 0 , 0 , 1)
+    tz_app1$severity_dummy <- ifelse(tz_app1$Severe.injuries == 0 , 0 , 1)
+    tz_app1$light_dummy <- ifelse(tz_app1$Light.injuries == 0 , 0 , 1)
+    
+    #combine them together in a categorical var
+    #tz_app1%>%
+    #mutate(injury = ifelse(tz_app1$light_dummy == 1, "Light Injury", NA)) %>%
+    #mutate(injury = ifelse(tz_app1$severity_dummy == 1, "Severe Injury", NA)) %>%
+    #mutate(injury = ifelse(tz_app1$fatality_dummy == 1, "Fatality", NA))  
+    
+    #tz_app1%>%
+    #    tz_app1$injury = ifelse(tz_app1$light_dummy == 1, "Light Injury", NA) %>% 
+    #     ifelse(tz_app1$severity_dummy == 1, "Severe Injury", NA) %>%
+    #     ifelse(tz_app1$fatality_dummy == 1, "Fatality", NA)  
+    
+    tz_app1$injury[tz_app1$fatality_dummy == 1] <- "Fatality"
+    tz_app1$injury[tz_app1$severity_dummy ==1] <- "Severe Injury"
+    tz_app1$injury[tz_app1$light_dummy ==1] <- "Light Injury"
+    
+    
+    
+    #### Subsets
+    tz_app1$year <- tz_app1$year %>% str_squish() %>% as.numeric()
+    tz_app1 <- tz_app1[(tz_app1$year %in% as.numeric(input$tab_year)) & (tz_app1$road %in% input$tab_road) & (tz_app1$injury %in% input$tab_injury) & (tz_app1$lighttime %in% input$tab_lights)  & (tz_app1$male >= input$males[1]) & (tz_app1$male <= input$males[2]) & (tz_app1$female >= input$females[1]) &  (tz_app1$Severe.injuries >= input$Severe.injuries[1] & tz_app1$Severe.injuries <= input$Severe.injuries[2]) & (tz_app1$Fatalities >= input$Fatalities[1] & tz_app1$Fatalities <= input$Fatalities[2]) & (tz_app1$female <= input$females[2]),]
+    
+    tz_app1$Latitude <- tz_app1$Latitude %>% as.character %>% as.numeric
+    tz_app1$Longitude <- tz_app1$Longitude %>% as.character %>% as.numeric
+    
+    tz_app1 <- tz_app1[tz_app1$Latitude != 0,]
+    
+    
+    
+    #drop any NAs among all three datasets
+    tz_app1 <- tz_app1 %>%
+      dplyr::filter(!is.na(Latitude),
+                    !is.na(Longitude))
+    
+    health <- health %>%
+      dplyr::filter(!is.na(Latitude),
+                    !is.na(Longitude))
+    school <- school %>%
+      dplyr::filter(!is.na(lat),
+                    !is.na(lon))
+    
+    
+    
+    #### Convert to Spatial Object
+    coordinates(tz_app1) <- ~Longitude+Latitude
+    crs(tz_app1) <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
+    
+    coordinates(health) <-  ~Longitude+Latitude
+    crs(health) <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
+    
+    
+    coordinates(school) <- ~lon+lat
+    crs(school) <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
+    
+    
+    tz_app1$popup_text <- paste0("Number of Fatalities\n", tz_app1$Fatalities)
+    
+    
+    tz_app1$popup_text <- paste(tz_app1$Latitude, tz_app1$Longitude, sep=",")
+    
+    
+    
+    
+    leaflet() %>%
+      addTiles() %>%
+      addMarkers(data = tz_app1, clusterOptions = markerClusterOptions, popup = ~popup_text) %>%
+      addCircles(data = health, popup = ~facility , color = "blue", group = "Health Facilities") %>%
+      addCircles(data = school, popup = ~name_code, color = "green", group = "Schools") %>%
+      addLayersControl(overlayGroups = c("Health Facilities", "Schools"),
+                       options = layersControlOptions(collapsed = FALSE)) %>%
+      hideGroup(c("Schools"))
+    
+    
+    
+  })
   
-  tz_app1$road <- tz_app1$Road.Class %>% as.character
-  tz_app1$lighttime <- tz_app1$Light %>% as.character
-  tz_app1$male <- tz_app1$Male %>% as.numeric
-  tz_app1$female <- tz_app1$Female %>% as.numeric
-  tz_app1$Fatalities <- tz_app1$Fatalities %>% as.numeric
-  tz_app1$Severe.injuries <- tz_app1$Severe.injuries %>% as.numeric
-  
-  #make severity and fatalities dummy variables
-  
-  tz_app1$fatality_dummy <- ifelse(tz_app1$Fatalities == 0 , 0 , 1)
-  tz_app1$severity_dummy <- ifelse(tz_app1$Severe.injuries == 0 , 0 , 1)
-  tz_app1$light_dummy <- ifelse(tz_app1$Light.injuries == 0 , 0 , 1)
-  
-  #combine them together in a categorical var
-  #tz_app1%>%
-  #mutate(injury = ifelse(tz_app1$light_dummy == 1, "Light Injury", NA)) %>%
-  #mutate(injury = ifelse(tz_app1$severity_dummy == 1, "Severe Injury", NA)) %>%
-  #mutate(injury = ifelse(tz_app1$fatality_dummy == 1, "Fatality", NA))  
-  
-#tz_app1%>%
-#    tz_app1$injury = ifelse(tz_app1$light_dummy == 1, "Light Injury", NA) %>% 
-#     ifelse(tz_app1$severity_dummy == 1, "Severe Injury", NA) %>%
-#     ifelse(tz_app1$fatality_dummy == 1, "Fatality", NA)  
-
-tz_app1$injury[tz_app1$fatality_dummy == 1] <- "Fatality"
-tz_app1$injury[tz_app1$severity_dummy ==1] <- "Severe Injury"
-tz_app1$injury[tz_app1$light_dummy ==1] <- "Light Injury"
-
-  
-  
-  #### Subsets
-  tz_app1$year <- tz_app1$year %>% str_squish() %>% as.numeric()
-  tz_app1 <- tz_app1[(tz_app1$year %in% as.numeric(input$tab_year)) & (tz_app1$road %in% input$tab_road) & (tz_app1$injury %in% input$tab_injury) & (tz_app1$lighttime %in% input$tab_lights)  & (tz_app1$male >= input$males[1]) & (tz_app1$male <= input$males[2]) & (tz_app1$female >= input$females[1]) &  (tz_app1$Severe.injuries >= input$Severe.injuries[1] & tz_app1$Severe.injuries <= input$Severe.injuries[2]) & (tz_app1$Fatalities >= input$Fatalities[1] & tz_app1$Fatalities <= input$Fatalities[2]) & (tz_app1$female <= input$females[2]),]
-
-  tz_app1$Latitude <- tz_app1$Latitude %>% as.character %>% as.numeric
-  tz_app1$Longitude <- tz_app1$Longitude %>% as.character %>% as.numeric
-  
-  tz_app1 <- tz_app1[tz_app1$Latitude != 0,]
-  
-
-  
-  #drop any NAs among all three datasets
-  tz_app1 <- tz_app1 %>%
-    dplyr::filter(!is.na(Latitude),
-                  !is.na(Longitude))
-  
-  health <- health %>%
-    dplyr::filter(!is.na(Latitude),
-                  !is.na(Longitude))
-  school <- school %>%
-    dplyr::filter(!is.na(lat),
-                  !is.na(lon))
-  
-  
-  
-  #### Convert to Spatial Object
-  coordinates(tz_app1) <- ~Longitude+Latitude
-  crs(tz_app1) <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
-
-  coordinates(health) <-  ~Longitude+Latitude
-  crs(health) <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
-  
-
-  coordinates(school) <- ~lon+lat
-  crs(school) <- CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0")
-  
-  
-  tz_app1$popup_text <- paste0("Number of Fatalities\n", tz_app1$Fatalities)
-  
-  
-  tz_app1$popup_text <- paste(tz_app1$Latitude, tz_app1$Longitude, sep=",")
-  
-  
-  
-  
-  leaflet() %>%
-    addTiles() %>%
-    addMarkers(data = tz_app1, clusterOptions = markerClusterOptions, popup = ~popup_text) %>%
-    addCircles(data = health, popup = ~facility , color = "blue", group = "Health Facilities") %>%
-    addCircles(data = school, popup = ~name_code, color = "green", group = "Schools") %>%
-    addLayersControl(overlayGroups = c("Health Facilities", "Schools"),
-                     options = layersControlOptions(collapsed = FALSE)) %>%
-    hideGroup(c("Schools"))
-  
-  
-  
-})
-
 }
-  
+
 
 
 
